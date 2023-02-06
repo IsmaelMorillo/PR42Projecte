@@ -3,6 +3,7 @@ const fs = require('fs/promises')
 const url = require('url')
 const post = require('./post.js')
 const { v4: uuidv4 } = require('uuid')
+var mysql = require('mysql');
 
 // Wait 'ms' milliseconds
 function wait (ms) {
@@ -47,6 +48,8 @@ async function getDades (req, res) {
       await wait(1500)
       let senseDuplicats = [...new Set(objBrandsList)]
       result = { status: "OK", result: senseDuplicats.sort() } 
+      var usuaris = await queryDatabase("SELECT * FROM Usuaris");
+      console.log(usuaris.length);
     }
 
     if (receivedPOST.type == "colors") { 
@@ -174,16 +177,16 @@ function queryDatabase (query) {
 
   return new Promise((resolve, reject) => {
     var connection = mysql.createConnection({
-      host: process.env.MYSQLHOST || "localhost",
-      port: process.env.MYSQLPORT || 3306,
+      host: process.env.MYSQLHOST || "containers-us-west-138.railway.app",
+      port: process.env.MYSQLPORT || 7852,
       user: process.env.MYSQLUSER || "root",
-      password: process.env.MYSQLPASSWORD || "",
-      database: process.env.MYSQLDATABASE || "test"
+      password: process.env.MYSQLPASSWORD || "ddXdX0NbiTutVHXcqNYU",
+      database: process.env.MYSQLDATABASE || "railway"
     });
 
     connection.query(query, (error, results) => { 
       if (error) reject(error);
-      resolve(results)
+      resolve(results);
     });
      
     connection.end();
