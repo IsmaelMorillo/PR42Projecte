@@ -3,7 +3,7 @@ const fs = require('fs/promises')
 const url = require('url')
 const post = require('./post.js')
 const { v4: uuidv4 } = require('uuid')
-var mysql = require('mysql');
+var mysql = require('mysql2');
 
 // Wait 'ms' milliseconds
 function wait (ms) {
@@ -31,64 +31,78 @@ async function getDades (req, res) {
   let receivedPOST = await post.getPostObject(req)
   let result = {};
 
-  var textFile = await fs.readFile("./public/consoles/consoles-list.json", { encoding: 'utf8'})
-  var objConsolesList = JSON.parse(textFile)
-
   if (receivedPOST) {
-    if (receivedPOST.type == "consola") {
-      var objFilteredList = objConsolesList.filter((obj) => { return obj.name == receivedPOST.name })
+    if (receivedPOST.type == "llistaUsuaris") {
+      var objUsersList = await queryDatabase("SELECT * FROM Usuaris");
       await wait(1500)
-      if (objFilteredList.length > 0) {
-        result = { status: "OK", result: objFilteredList[0] }
+      result = { status: "OK", result: objUsersList } 
+    }
+
+    if (receivedPOST.type == "userInsert") {
+      if (await queryDatabase(`SELECT * FROM Usuaris WHERE nom = "${receivedPOST.nom}" AND cognoms = "${receivedPOST.cognoms}"`)){
+        result = { status: "KO", result: { error: "userRepeated" } }
+      }
+
+      if (!phonenumber(receivedPOST.phone)) {
+        result = { status: "KO", result: { error: "phone" } }
+      }
+      
+      else if (!email(receivedPOST.email)) {
+        result = { status: "KO", result: { error: "email" } }
+      }
+        
+      if (await queryDatabase(`SELECT * FROM Usuaris WHERE correu = "${receivedPOST.email}"`)){
+        result = { status: "KO", result: { error: "emailRepeated" } }
+      }
+
+      if (await queryDatabase(`SELECT * FROM Usuaris WHERE telefon = "${receivedPOST.telefon}"`)){
+        result = { status: "KO", result: { error: "telefonRepeated" } }
+      }
+      
+      else {
+        await queryDatabase(`INSERT INTO Usuaris (nom, cognoms, correu, telefon, direccio, ciutat) VALUES ('${receivedPOST.name}','${receivedPOST.surnames}','${receivedPOST.email}','${receivedPOST.phone}','${receivedPOST.address}','${receivedPOST.city}');`)
+        result = { status: "OK" }
       }
     }
-    
-    if (receivedPOST.type == "marques") {
-      var objBrandsList = objConsolesList.map((obj) => { return obj.brand })
+
+    if (receivedPOST.type == "modifyUser") {
+      var objUsersList = await queryDatabase(`SELECT * FROM Usuaris WHERE id="${receivedPOST.id}"`);
       await wait(1500)
-      let senseDuplicats = [...new Set(objBrandsList)]
-      result = { status: "OK", result: senseDuplicats.sort() } 
-      var usuaris = await queryDatabase("SELECT * FROM Usuaris");
-      console.log(usuaris.length);
+      result = { status: "OK", result: objUsersList }
     }
 
-    if (receivedPOST.type == "colors") { 
-      var objColorsList = objConsolesList.map((obj) => { return obj.color })
+    if (receivedPOST.type == "updateUser") {
+      var objUsersList = await queryDatabase(`UPDATE Usuaris SET nom="${receivedPOST.name}", cognoms="${receivedPOST.surnames}", correu="${receivedPOST.email}", telefon="${receivedPOST.phone}", direccio="${receivedPOST.address}", ciutat="${receivedPOST.city} WHERE id="${receivedPOST.id}"}"`);
       await wait(1500)
-      let senseDuplicats = [...new Set(objColorsList)]
-      result = { status: "OK", result: senseDuplicats.sort() } 
-    }
-    
-    if (receivedPOST.type == "processadors") { 
-      var objProcessList = objConsolesList.map((obj) => { return obj.process })
-      await wait(1500)
-      let senseDuplicats = [...new Set(objProcessList)]
-      result = { status: "OK", result: senseDuplicats.sort() } 
-    }
-
-    if (receivedPOST.type == "consoles") { 
-      var objColorsList = objConsolesList.map((obj) => { return obj.name })
-      await wait(1500)
-      let senseDuplicats = [...new Set(objColorsList)]
-      result = { status: "OK", result: senseDuplicats.sort() } 
-    }
-
-    if (receivedPOST.type == "marca") {
-      var objBrandConsolesList = objConsolesList.filter ((obj) => { return obj.brand == receivedPOST.name })
-      await wait(1500)
-      // Ordena les consoles per nom de model
-      objBrandConsolesList.sort((a,b) => { 
-          var textA = a.name.toUpperCase();
-          var textB = b.name.toUpperCase();
-          return (textA < textB) ? -1 : (textA > textB) ? 1 : 0;
-      })
-      result = { status: "OK", result: objBrandConsolesList } 
+      result = { status: "OK", result: objUsersList }
     }
   }
 
   res.writeHead(200, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(result))
 }
+
+function phonenumber(inputtxt) {
+  const phoneRegex = new RegExp(/^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{3})$/);
+  if(phoneRegex.test(inputtxt)) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+function email(inputtxt) {
+  const emailRegex = new RegExp(/^[A-Za-z0-9_!#$%&'*+\/=?`{|}~^.-]+@[A-Za-z0-9.-]+$/, "gm");
+
+  if(emailRegex.test(inputtxt)) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
 
 // Run WebSocket server
 const WebSocket = require('ws')
@@ -116,7 +130,7 @@ wss.on('connection', (ws) => {
   })
 
   // What to do when a client message is received
-  ws.on('message', (bufferedMessage) => {
+  ws.on('message', async (bufferedMessage) => {
     var messageAsString = bufferedMessage.toString()
     var messageAsObject = {}
     
@@ -125,7 +139,7 @@ wss.on('connection', (ws) => {
 
     if (messageAsObject.type == "bounce") {
       var rst = { type: "bounce", message: messageAsObject.message }
-      ws.send(JSON.stringify(rst))
+      ws.send(JSON.stringify(rst));
     } else if (messageAsObject.type == "broadcast") {
       var rst = { type: "broadcast", origin: id, message: messageAsObject.message }
       broadcast(rst)
